@@ -177,5 +177,6 @@ let main argv =
     printfn "Start system Time: %A" timeNow
     observer <! StartTimer(DateTime.Now.TimeOfDay.Milliseconds)
     nodeArray.[intitialNode] <! CallSelf// return an integer exit code
+    printfn "test"
     System.Console.ReadKey() |> ignore
     0
