@@ -113,20 +113,42 @@ let Worker (dictionary : Dictionary<IActorRef, bool>) observer numberOfNodes (ma
     }
     loop()
 
-let fullTopology numNodes (nodeArray: IActorRef [])= 
+
+
+let fullTopology numberOfNodes (nodeArray: IActorRef [])= 
     for node in 0..numberOfNodes do
         let mutable neighbourList = [||]
         for neighbourNode in 0..numberOfNodes-1 do
             if node <> neighbourNode then
-                // neighbourList <- [neighbourNode] @ neighbourList
                 neighbourList <- (Array.append neighbourList[|nodeArray.[neighbourNode] |])
-       // topologyDict.Add(node, neighbourList)
-
         nodeArray.[node] <! NeighbourInitialization(neighbourList)
+
+let lineTopology numberOfNodes (nodeArray: IActorRef [])= 
+    for node in 0..numberOfNodes do
+        let mutable neighbourList = [||]
+        if node = 0 then do
+            neighbourList <- (Array.append neighbourList[|nodeArray.[numberOfNodes-1] |])
+        elif node = numberOfNodes-1 then do
+            neighbourList <- (Array.append neighbourList[|nodeArray.[0] |])
+        else
+            neighbourList <- (Array.append neighbourList[|nodeArray.[0] |])
+        nodeArray.[node] <! NeighbourInitialization(neighbourList)
+
+let createTopologies numberOfNodes topology nodeArray= 
+    // topologyDict.Add(1, [2])
+    match topology with
+    | "full" -> fullTopology numberOfNodes nodeArray
+    // | "3D" -> threeDTopology numNodes nodeArray
+    | "line" -> lineTopology numberOfNodes nodeArray
+    // | "imp3D" -> imperfectThreeDTopology numNodes nodeArray
+    | _ -> 
+        printfn "Not a valid Topology%A" topology
+        
 
 [<EntryPoint>]
 let main argv =
     let numberOfNodes =  (int) argv.[0]
+    let topology = (string) argv.[1]
     let gossipSystem = ActorSystem.Create("GossipSystem")
     let timer = Diagnostics.Stopwatch()
     let observer = spawn gossipSystem "Observer" (Observer numberOfNodes timer)
@@ -143,28 +165,8 @@ let main argv =
         nodeArray.[x] <- WorkeractorRef
         dictionary.Add(WorkeractorRef, false)
 
-    // for x in [0 .. numberOfNodes] do
-        // let mutable neighbourList = [||]
-        
-        // changes according to topology here
-        //line topology  
-        // if x = 0 then
-        //     neighbourList <- (Array.append neighbourList[|nodeArray.[x + 1]; nodeArray.[numberOfNodes]|])
-        // elif x = numberOfNodes then
-        //     neighbourList <- (Array.append neighbourList [|nodeArray.[x - 1]; nodeArray.[0]|])
-        // else
-        //     neighbourList <- (Array.append neighbourList[|nodeArray.[x - 1] ; nodeArray.[(x + 1)]|])
-    fullTopology numberOfNodes nodeArray
-    // for node in 0..numberOfNodes do
-    //     let mutable neighbourList = [||]
-    //     for neighbourNode in 0..numberOfNodes-1 do
-    //         if node <> neighbourNode then
-    //             // neighbourList <- [neighbourNode] @ neighbourList
-    //             neighbourList <- (Array.append neighbourList[|nodeArray.[neighbourNode] |])
-    //    // topologyDict.Add(node, neighbourList)
-
-    //     nodeArray.[node] <! NeighbourInitialization(neighbourList)
-
+    createTopologies numberOfNodes topology nodeArray
+    
     let intitialNode = Random().Next(0, numberOfNodes - 1)
     timer.Start()
     observer <! StartTimer(DateTime.Now.TimeOfDay.Milliseconds)
