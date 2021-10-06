@@ -23,17 +23,21 @@ let numberOfNodes = 10
 
 type Instructions =
     | NeighbourInitialization of IActorRef []
-    | CallSelf
-    | CallNeighbour
+    | CallFromSelf
+    | CallFromNeighbour
     | CountReached
     | StartTimer of int
     | TotalNodes of int
     | NodeReachedOnce of string
+    | CallFromSelfPushSome
+    | CallFromNeighbourPushSum of Double * Double * Double
+    | SumReached of string
 
 let Observer totalNodes (timer : Stopwatch) (mailbox: Actor<_>) = 
     let mutable count = 0
     let mutable startTime = 0
     let mutable reachedCount = 0
+    let mutable pushSomeCount = 0
 
     let rec loop()= actor{
         let! msg = mailbox.Receive();
@@ -59,6 +63,11 @@ let Observer totalNodes (timer : Stopwatch) (mailbox: Actor<_>) =
                 
                 printfn "Time taken for convergence : %f ms" timer.Elapsed.TotalMilliseconds
                 Environment.Exit(0)
+        | SumReached actorName ->
+            pushSomeCount <- pushSomeCount + 1
+            if pushSomeCount = numberOfNodes then
+                printfn "System has converged"
+                Environment.Exit(0)
 
         | StartTimer startTiming -> startTime <- startTiming
         | _ -> ()
@@ -69,9 +78,13 @@ let Observer totalNodes (timer : Stopwatch) (mailbox: Actor<_>) =
 
 
 
-let Worker observer numberOfNodes (gossipSystem : ActorSystem) (mailbox: Actor<_>) =
+let Worker observer numberOfNodes initialWeight delta (gossipSystem : ActorSystem) (mailbox: Actor<_>) =
     let mutable listenCount = 0
     let mutable neighbours: IActorRef [] = [||]
+    let mutable sum = initialWeight |> double
+    let mutable weight = 1.0
+    let mutable sameRatioRound = 0
+    let mutable initialCall = 0
     // let mutable neighboursMap = Map.empty
     let mutable converged = false
 
@@ -81,24 +94,22 @@ let Worker observer numberOfNodes (gossipSystem : ActorSystem) (mailbox: Actor<_
         
         | NeighbourInitialization neighbourlist ->
             neighbours <- neighbourlist
-            // for n in neighbourlist do
-            //     neighboursMap.Add(n, 10 / neighbourlist.Length) |> ignore
 
-        | CallSelf ->
+
+        | CallFromSelf ->
             //printfn "%A call self actor called" mailbox.Self.Path.Name
             if listenCount < 11 then
                 let mutable random = Random().Next(0,neighbours.Length)
-                        
-                neighbours.[random] <! CallNeighbour
+                neighbours.[random] <! CallFromNeighbour
                 //.Thread.Sleep(5)
                 //mailbox.Self <! CallSelf
 
-        | CallNeighbour ->
+        | CallFromNeighbour ->
             //printfn "Call Neighbour %A : listencount = %i" mailbox.Self.Path.Name listenCount
             if listenCount = 0 then
                 // initialize scheduler here. it will only run once for each actor.
                 //system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(1.0), mailbox.Self, PushsumObjSelf(actorPool, bossRef))  
-                gossipSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(0.0),TimeSpan.FromMilliseconds(25.0), mailbox.Self, CallSelf)
+                gossipSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(0.0),TimeSpan.FromMilliseconds(25.0), mailbox.Self, CallFromSelf)
                 observer <! NodeReachedOnce mailbox.Self.Path.Name
                 //mailbox.Self <! CallSelf
             if listenCount = 10 then
@@ -107,6 +118,47 @@ let Worker observer numberOfNodes (gossipSystem : ActorSystem) (mailbox: Actor<_
                 observer <! CountReached
                 //dictionary.[mailbox.Self] <- true
             listenCount <- listenCount + 1
+
+        | CallFromSelfPushSome ->
+            //printfn "%f %f"  sum weight
+            if sameRatioRound < 3 then
+                let mutable random = Random().Next(0,neighbours.Length)
+                sum <- sum / 2.0
+                weight  <- weight / 2.0
+                neighbours.[random] <! CallFromNeighbourPushSum (sum, weight, delta)
+
+
+        | CallFromNeighbourPushSum (s: float, w: float, delta) ->
+            // if initialCall = 0 then
+            //     gossipSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(0.0),TimeSpan.FromMilliseconds(15.0), mailbox.Self, CallFromSelfPushSome)
+            //     initialCall <- 1
+            
+            let updatedSum = sum + s
+            let updatedWeight = weight + w
+            let gap = updatedSum / updatedWeight - sum / weight |> abs
+
+
+            if gap > delta then
+                sameRatioRound <- 0
+                sum <- updatedSum / 2.0
+                weight <- updatedWeight / 2.0
+                let mutable random = Random().Next(0,neighbours.Length)
+                neighbours.[random] <! CallFromNeighbourPushSum (sum, weight, delta)
+                mailbox.Self <! CallFromNeighbourPushSum (sum, weight, delta)
+
+            else 
+                sameRatioRound <- sameRatioRound + 1
+
+            if sameRatioRound = 3 then
+                printfn "Actor %s has converged with sum = %f and w = %f" mailbox.Self.Path.Name sum weight
+                observer <! SumReached mailbox.Self.Path.Name
+                gossipSystem.Stop(mailbox.Self)
+                // printfn "%f" (sum / weight)
+            // sum <- updatedSum / 2.0
+            // weight <- updatedWeight / 2.0
+            // let mutable random = Random().Next(0,neighbours.Length)
+            // neighbours.[random] <! CallFromNeighbourPushSum (sum, weight, delta)
+
 
 
         return! loop()
@@ -149,6 +201,7 @@ let createTopologies numberOfNodes topology nodeArray=
 let main argv =
     let numberOfNodes =  (int) argv.[0]
     let topology = (string) argv.[1]
+    let algo = (string) argv.[2]
     let gossipSystem = ActorSystem.Create("GossipSystem")
     let timer = Diagnostics.Stopwatch()
     let observer = spawn gossipSystem "Observer" (Observer numberOfNodes timer)
@@ -160,7 +213,7 @@ let main argv =
     nodeArray <- Array.zeroCreate(numberOfNodes + 1)
     for x in [0 .. numberOfNodes] do
         let actorName: string= "node" + string(x)
-        let WorkeractorRef = spawn gossipSystem actorName (Worker observer numberOfNodes gossipSystem)
+        let WorkeractorRef = spawn gossipSystem actorName (Worker observer numberOfNodes (x) (10.0 ** -10.0) gossipSystem)
         nodeArray.[x] <- WorkeractorRef
     printfn " after creating actors %A" System.DateTime.Now.TimeOfDay.TotalMilliseconds
 
@@ -176,7 +229,9 @@ let main argv =
     let timeNow = System.DateTime.Now.TimeOfDay.TotalMilliseconds 
     printfn "Start system Time: %A" timeNow
     observer <! StartTimer(DateTime.Now.TimeOfDay.Milliseconds)
-    nodeArray.[intitialNode] <! CallSelf// return an integer exit code
-    printfn "test"
+    if (algo = "pushsome") then
+        nodeArray.[intitialNode] <! CallFromSelfPushSome
+    else
+        nodeArray.[intitialNode] <! CallFromSelf // return an integer exit code
     System.Console.ReadKey() |> ignore
     0
