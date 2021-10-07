@@ -30,7 +30,10 @@ type Instructions =
     | NodeReachedOnce of string
     | CallFromSelfPushSome
     | CallFromNeighbourPushSum of Double * Double * Double
-    | SumReached
+    | SumReached of Double * Double
+    | ClearLists
+    | SendSum of Double * Double * Double
+    | IntializeScheduler
 
 let Observer totalNodes (timer : Stopwatch) (mailbox: Actor<_>) = 
     let mutable count = 0
@@ -39,10 +42,10 @@ let Observer totalNodes (timer : Stopwatch) (mailbox: Actor<_>) =
     let mutable pushSomeCount = 0
 
     let rec loop() = actor{
-        printfn "OBSERVER START"
+        //printfn "OBSERVER START"
         let! msg = mailbox.Receive();
         let sender = mailbox.Sender()
-        printfn "MSG RECEIVED"
+        //printfn "MSG RECEIVED"
         match msg with
         | CountReached ->
             count <- count + 1
@@ -65,16 +68,17 @@ let Observer totalNodes (timer : Stopwatch) (mailbox: Actor<_>) =
                 
                 printfn "Time taken for convergence : %f ms" timer.Elapsed.TotalMilliseconds
                 Environment.Exit(0)
-        | SumReached ->
+        | SumReached (s: Double, w: Double)->
             pushSomeCount <- pushSomeCount + 1
-            printfn "OB %d %s %d BO" pushSomeCount sender.Path.Name totalNodes
+            printfn "%s has converged with values s = %f and w = %f and s/w = %f" sender.Path.Name s w (s/w)
+            //printfn "OB %d %s %d BO" pushSomeCount sender.Path.Name totalNodes
             if pushSomeCount = totalNodes then
                 printfn "System has converged"
                 Environment.Exit(0)
 
         | StartTimer startTiming -> startTime <- startTiming
         | _ -> ()
-        printfn "OBSERVER RETURN"
+        //printfn "OBSERVER RETURN"
         return! loop()
     }
     loop()
@@ -87,80 +91,135 @@ let Worker observer numberOfNodes initialWeight delta (gossipSystem : ActorSyste
     let mutable neighbours: IActorRef [] = [||]
     let mutable sum = initialWeight |> double
     let mutable weight = 1.0
+    let mutable oldsum = sum
+    let mutable oldweight = weight
     let mutable sameRatioRound = 0
     let mutable initialCall = 0
     // let mutable neighboursMap = Map.empty
     let mutable converged = false
+    let mutable sumList = []
+    let mutable weightList = []
+    let mutable round = 0
+    let mutable totalSum = 0.0
+    let mutable totalWeight = 0.0
+    let mutable converged = 0
 
     let rec loop() = actor{
-        let! message = mailbox.Receive();
-        let sender = mailbox.Sender();
-        printfn "ACTOR MSG RECEI %s %A" mailbox.Self.Path.Name message
-        Thread.Sleep(1000)
-        match message with
-        
-        | NeighbourInitialization neighbourlist ->
-            neighbours <- neighbourlist
+        if converged = 0 then
+            let! message = mailbox.Receive();
+            let sender = mailbox.Sender();
+            //printfn "ACTOR MSG RECEI %s %A" mailbox.Self.Path.Name message
+            //Thread.Sleep(1000)
+            match message with
+            
+            | NeighbourInitialization neighbourlist ->
+                neighbours <- neighbourlist
 
 
-        | CallFromSelf ->
-            //printfn "%A call self actor called" mailbox.Self.Path.Name
-            if listenCount < 11 then
+            | CallFromSelf ->
+                //printfn "%A call self actor called" mailbox.Self.Path.Name
+                if listenCount < 11 then
+                    let mutable random = Random().Next(0,neighbours.Length)
+                    neighbours.[random] <! CallFromNeighbour
+                    //.Thread.Sleep(5)
+                    //mailbox.Self <! CallSelf
+
+            | CallFromNeighbour ->
+                //printfn "Call Neighbour %A : listencount = %i" mailbox.Self.Path.Name listenCount
+                if listenCount = 0 then
+                    // initialize scheduler here. it will only run once for each actor.
+                    //system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(1.0), mailbox.Self, PushsumObjSelf(actorPool, bossRef))  
+                    gossipSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(0.0),TimeSpan.FromMilliseconds(25.0), mailbox.Self, CallFromSelf)
+                    observer <! NodeReachedOnce mailbox.Self.Path.Name
+                    //mailbox.Self <! CallSelf
+                if listenCount = 10 then
+                    // printf "%A limit reached " mailbox.Self.Path.Name
+                    // printfn "Limit reached : %A : listencount = %i" mailbox.Self.Path.Name listenCount
+                    observer <! CountReached
+                    //dictionary.[mailbox.Self] <- true
+                listenCount <- listenCount + 1
+
+            | CallFromSelfPushSome ->
+                //printfn "%f %f"  sum weight
                 let mutable random = Random().Next(0,neighbours.Length)
-                neighbours.[random] <! CallFromNeighbour
-                //.Thread.Sleep(5)
-                //mailbox.Self <! CallSelf
-
-        | CallFromNeighbour ->
-            //printfn "Call Neighbour %A : listencount = %i" mailbox.Self.Path.Name listenCount
-            if listenCount = 0 then
-                // initialize scheduler here. it will only run once for each actor.
-                //system.Scheduler.ScheduleTellOnce(TimeSpan.FromSeconds(1.0), mailbox.Self, PushsumObjSelf(actorPool, bossRef))  
-                gossipSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(0.0),TimeSpan.FromMilliseconds(25.0), mailbox.Self, CallFromSelf)
-                observer <! NodeReachedOnce mailbox.Self.Path.Name
-                //mailbox.Self <! CallSelf
-            if listenCount = 10 then
-                // printf "%A limit reached " mailbox.Self.Path.Name
-                // printfn "Limit reached : %A : listencount = %i" mailbox.Self.Path.Name listenCount
-                observer <! CountReached
-                //dictionary.[mailbox.Self] <- true
-            listenCount <- listenCount + 1
-
-        | CallFromSelfPushSome ->
-            //printfn "%f %f"  sum weight
-            let mutable random = Random().Next(0,neighbours.Length)
-            sum <- sum / 2.0
-            weight  <- weight / 2.0
-            neighbours.[random] <! CallFromNeighbourPushSum (sum, weight, delta)
-            // mailbox.Self <! CallFromNeighbourPushSum (sum, weight, delta)
-
-
-        | CallFromNeighbourPushSum (s: float, w: float, delta) ->
-
-            let updatedSum = sum + s
-            let updatedWeight = weight + w
-            let gap = updatedSum / updatedWeight - sum / weight |> abs
-            printfn "S %f %f %f %f %f %f %s %s %f %d E" s w sum weight updatedSum updatedWeight mailbox.Self.Path.Name sender.Path.Name gap sameRatioRound
-            Thread.Sleep(1000)
-
-            if gap > delta then
-                sameRatioRound <- 0
-                sum <- updatedSum / 2.0
-                weight <- updatedWeight / 2.0
-            else 
-                sameRatioRound <- sameRatioRound + 1
-
-            if sameRatioRound = 3 then
-                    printfn "Actor %s has converged with sum = %f and w = %f" mailbox.Self.Path.Name sum weight
-                    observer <! SumReached
-                // TODO STOP SOMEHOW and if sent once to observer, dont send again
-            let mutable random = Random().Next(0,neighbours.Length)
-            neighbours.[random] <! CallFromNeighbourPushSum (sum, weight, delta)
+                sum <- sum / 2.0
+                weight  <- weight / 2.0
+                neighbours.[random] <! CallFromNeighbourPushSum (sum, weight, delta)
                 // mailbox.Self <! CallFromNeighbourPushSum (sum, weight, delta)
 
 
-        return! loop()
-    }
+            | CallFromNeighbourPushSum (s: float, w: float, delta) ->
+
+                let updatedSum = sum + s
+                let updatedWeight = weight + w
+                let gap = updatedSum / updatedWeight - sum / weight |> abs
+                printfn "S %f %f %f %f %f %f %s %s %f %d E" s w sum weight updatedSum updatedWeight mailbox.Self.Path.Name sender.Path.Name gap sameRatioRound
+                Thread.Sleep(1000)
+
+                if gap > delta then
+                    sameRatioRound <- 0
+                    sum <- updatedSum / 2.0
+                    weight <- updatedWeight / 2.0
+                else 
+                    sameRatioRound <- sameRatioRound + 1
+
+                if sameRatioRound = 3 then
+                        printfn "Actor %s has converged with sum = %f and w = %f" mailbox.Self.Path.Name sum weight
+                        observer <! SumReached
+                    // TODO STOP SOMEHOW and if sent once to observer, dont send again
+                let mutable random = Random().Next(0,neighbours.Length)
+                neighbours.[random] <! CallFromNeighbourPushSum (sum, weight, delta)
+                    // mailbox.Self <! CallFromNeighbourPushSum (sum, weight, delta)
+
+            | ClearLists ->
+               
+                totalSum <- 0.0
+                totalWeight <- 0.0
+                for x in sumList do
+                    totalSum <- totalSum + x
+                for x in weightList do
+                    totalWeight <- totalWeight + x
+
+                let oldRatio = sum / weight
+                sum <- totalSum
+                weight <- totalWeight
+                let newRatio = sum / weight
+
+               
+                let mutable random = Random().Next(0,neighbours.Length)
+                neighbours.[random] <! SendSum (sum / 2.0, weight / 2.0, delta)
+                mailbox.Self <! SendSum (sum / 2.0, weight / 2.0, delta)
+                // if sameRatioRound < 3 then 
+                //     neighbours.[random] <! SendSum (sum / 2.0, weight / 2.0, delta)
+                //     mailbox.Self <! SendSum (sum / 2.0, weight / 2.0, delta)
+                if (sumList.Length > 1) then
+
+                    let gap = newRatio - oldRatio |> abs
+                    if gap > delta then
+                        sameRatioRound <- 0
+                    else
+                        sameRatioRound <- sameRatioRound + 1
+                    if sameRatioRound = 3 then
+                        //printfn "Actor %s has converged with sum = %f and w = %f at round %d" mailbox.Self.Path.Name sum weight round
+                        observer <! SumReached (sum, weight)
+                        converged <- 1
+                sumList <- []
+                weightList <- []
+                round <- round + 1
+                
+
+            | SendSum (s, w, delta) ->
+                sumList <- sumList @ [s]
+                weightList <- weightList @ [w]
+
+            | IntializeScheduler ->
+                mailbox.Self <! SendSum (sum , weight, delta)
+                gossipSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(0.0),TimeSpan.FromMilliseconds(50.0), mailbox.Self, ClearLists)
+                
+
+
+            return! loop()
+        }
     loop()
 
 
@@ -204,14 +263,14 @@ let main argv =
     let timer = Diagnostics.Stopwatch()
     let observer = spawn gossipSystem "Observer" (Observer numberOfNodes timer)
     //printfn "%i" numberOfNodes
-    printfn " after declaring variables %A" System.DateTime.Now.TimeOfDay.TotalMilliseconds
+    //printfn " after declaring variables %A" System.DateTime.Now.TimeOfDay.TotalMilliseconds
     let mutable  nodeArray = [||]
     //let dictionary = new Dictionary<IActorRef, bool>()
     //creating nodes and initialiazing their neighbours
     nodeArray <- Array.zeroCreate(numberOfNodes + 1)
     for x in [0 .. numberOfNodes] do
         let actorName: string= "node" + string(x)
-        let WorkeractorRef = spawn gossipSystem actorName (Worker observer numberOfNodes (x) (10.0 ** -1.0) gossipSystem)
+        let WorkeractorRef = spawn gossipSystem actorName (Worker observer numberOfNodes (x) (10.0 ** -10.0) gossipSystem)
         nodeArray.[x] <- WorkeractorRef
     printfn " after creating actors %A" System.DateTime.Now.TimeOfDay.TotalMilliseconds
 
@@ -228,7 +287,9 @@ let main argv =
     printfn "Start system Time: %A" timeNow
     observer <! StartTimer(DateTime.Now.TimeOfDay.Milliseconds)
     if (algo = "pushsome") then
-        nodeArray.[intitialNode] <! CallFromSelfPushSome
+        for x in nodeArray do
+            x <! IntializeScheduler
+        //nodeArray.[intitialNode] <! CallFromSelfPushSome
     else
         nodeArray.[intitialNode] <! CallFromSelf // return an integer exit code
     System.Console.ReadKey() |> ignore
