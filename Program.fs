@@ -72,7 +72,7 @@ let Observer totalNodes (timer : Stopwatch) (mailbox: Actor<_>) =
             pushSomeCount <- pushSomeCount + 1
             printfn "%s has converged with values s = %f and w = %f and s/w = %f and totalcount =%i" sender.Path.Name s w (s/w) pushSomeCount
             //printfn "OB %d %s %d BO" pushSomeCount sender.Path.Name totalNodes
-            if pushSomeCount = totalNodes + 1 then
+            if pushSomeCount = totalNodes then
                 printfn "System has converged"
                 Environment.Exit(0)
 
@@ -237,6 +237,11 @@ let lineTopology numberOfNodes (nodeArray: IActorRef [])=
         let mutable neighbourList = [||]
         if node <> 0 && node <> numberOfNodes-1 then
             neighbourList <- (Array.append neighbourList[|nodeArray.[node-1] ; nodeArray.[node+1]|])
+        if node = 0 then 
+            neighbourList <- (Array.append neighbourList[|nodeArray.[node+1]|])
+        if node = numberOfNodes-1 then 
+            neighbourList <- (Array.append neighbourList[|nodeArray.[node-1]|])
+
         nodeArray.[node] <! NeighbourInitialization(neighbourList)
 
 let threeDTopology numberOfNodes (nodeArray: IActorRef [])=
@@ -276,7 +281,7 @@ let createTopologies numberOfNodes topology nodeArray=
     // topologyDict.Add(1, [2])
     match topology with
     | "full" -> fullTopology numberOfNodes nodeArray
-    // | "3D" -> threeDTopology numNodes nodeArray
+    | "3D" -> threeDTopology numberOfNodes nodeArray
     | "line" -> lineTopology numberOfNodes nodeArray
     // | "imp3D" -> imperfectThreeDTopology numNodes nodeArray
     | _ -> 
