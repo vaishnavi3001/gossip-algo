@@ -235,13 +235,42 @@ let fullTopology numberOfNodes (nodeArray: IActorRef [])=
 let lineTopology numberOfNodes (nodeArray: IActorRef [])= 
     for node in 0..numberOfNodes-1 do
         let mutable neighbourList = [||]
-        if node = 0 then do
-            neighbourList <- (Array.append neighbourList[|nodeArray.[numberOfNodes-1] |])
-        elif node = numberOfNodes-1 then do
-            neighbourList <- (Array.append neighbourList[|nodeArray.[0]; nodeArray.[numberOfNodes-2] |])
-        else
+        if node <> 0 && node <> numberOfNodes-1 then
             neighbourList <- (Array.append neighbourList[|nodeArray.[node-1] ; nodeArray.[node+1]|])
         nodeArray.[node] <! NeighbourInitialization(neighbourList)
+
+let threeDTopology numberOfNodes (nodeArray: IActorRef [])=
+    let cubeRoot:int = int(Math.Floor(Math.Cbrt(float(numberOfNodes))))
+    let sqr = cubeRoot * cubeRoot
+    for node in 0..numberOfNodes-1 do
+        let mutable neighbourList = [||]
+        
+        // left node
+        if node % cubeRoot <> 0 then
+            neighbourList <- (Array.append neighbourList[|nodeArray.[node-1]|])
+        
+        // right node
+        if node % cubeRoot <> cubeRoot-1 then
+            neighbourList <- (Array.append neighbourList[|nodeArray.[node+1]|])
+        
+        // top
+        if node % sqr >= cubeRoot  then
+            neighbourList <- (Array.append neighbourList[|nodeArray.[node-cubeRoot]|])
+
+        // bottom
+        if node % sqr < (cubeRoot-1)*cubeRoot  then
+            neighbourList <- (Array.append neighbourList[|nodeArray.[node+cubeRoot]|])
+
+        // frontPlane
+        if node-sqr >= 0 then
+            neighbourList <- (Array.append neighbourList[|nodeArray.[node-sqr]|])
+        
+        // back plane
+        if node+sqr < numberOfNodes then
+            neighbourList <- (Array.append neighbourList[|nodeArray.[node+sqr]|])
+
+        nodeArray.[node] <! NeighbourInitialization(neighbourList)
+        
 
 let createTopologies numberOfNodes topology nodeArray= 
     // topologyDict.Add(1, [2])
