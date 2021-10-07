@@ -49,7 +49,7 @@ let Observer totalNodes (timer : Stopwatch) (mailbox: Actor<_>) =
         match msg with
         | CountReached ->
             count <- count + 1
-            // printfn "Count in observer %i %i" count totalNodes
+            printfn "Count in observer %i %i and converged node is %s" count totalNodes sender.Path.Name
             if count = totalNodes then
                 printf "Inside terminate block"
                 let timeNow = System.DateTime.Now.TimeOfDay.TotalMilliseconds 
@@ -67,12 +67,12 @@ let Observer totalNodes (timer : Stopwatch) (mailbox: Actor<_>) =
                 timer.Stop()
                 
                 printfn "Time taken for convergence : %f ms" timer.Elapsed.TotalMilliseconds
-                Environment.Exit(0)
+                //Environment.Exit(0)
         | SumReached (s: Double, w: Double)->
             pushSomeCount <- pushSomeCount + 1
-            printfn "%s has converged with values s = %f and w = %f and s/w = %f" sender.Path.Name s w (s/w)
+            printfn "%s has converged with values s = %f and w = %f and s/w = %f and totalcount =%i" sender.Path.Name s w (s/w) pushSomeCount
             //printfn "OB %d %s %d BO" pushSomeCount sender.Path.Name totalNodes
-            if pushSomeCount = totalNodes then
+            if pushSomeCount = totalNodes + 1 then
                 printfn "System has converged"
                 Environment.Exit(0)
 
@@ -192,17 +192,17 @@ let Worker observer numberOfNodes initialWeight delta (gossipSystem : ActorSyste
                 // if sameRatioRound < 3 then 
                 //     neighbours.[random] <! SendSum (sum / 2.0, weight / 2.0, delta)
                 //     mailbox.Self <! SendSum (sum / 2.0, weight / 2.0, delta)
-                if (sumList.Length > 1) then
+                //if (sumList.Length > 1) then
 
-                    let gap = newRatio - oldRatio |> abs
-                    if gap > delta then
-                        sameRatioRound <- 0
-                    else
-                        sameRatioRound <- sameRatioRound + 1
-                    if sameRatioRound = 3 then
-                        //printfn "Actor %s has converged with sum = %f and w = %f at round %d" mailbox.Self.Path.Name sum weight round
-                        observer <! SumReached (sum, weight)
-                        converged <- 1
+                let gap = newRatio - oldRatio |> abs
+                if gap > delta then
+                    sameRatioRound <- 0
+                else
+                    sameRatioRound <- sameRatioRound + 1
+                if sameRatioRound = 9 then
+                    //printfn "Actor %s has converged with sum = %f and w = %f at round %d" mailbox.Self.Path.Name sum weight round
+                    observer <! SumReached (sum, weight)
+                    converged <- 1
                 sumList <- []
                 weightList <- []
                 round <- round + 1
@@ -225,7 +225,7 @@ let Worker observer numberOfNodes initialWeight delta (gossipSystem : ActorSyste
 
 
 let fullTopology numberOfNodes (nodeArray: IActorRef [])= 
-    for node in 0..numberOfNodes do
+    for node in 0..numberOfNodes-1 do
         let mutable neighbourList = [||]
         for neighbourNode in 0..numberOfNodes-1 do
             if node <> neighbourNode then
@@ -267,11 +267,12 @@ let main argv =
     let mutable  nodeArray = [||]
     //let dictionary = new Dictionary<IActorRef, bool>()
     //creating nodes and initialiazing their neighbours
-    nodeArray <- Array.zeroCreate(numberOfNodes + 1)
-    for x in [0 .. numberOfNodes] do
+    nodeArray <- Array.zeroCreate(numberOfNodes)
+    for x in [0 .. numberOfNodes - 1] do
         let actorName: string= "node" + string(x)
         let WorkeractorRef = spawn gossipSystem actorName (Worker observer numberOfNodes (x) (10.0 ** -10.0) gossipSystem)
         nodeArray.[x] <- WorkeractorRef
+       // printfn "% node created" nodeArray.[x]
     printfn " after creating actors %A" System.DateTime.Now.TimeOfDay.TotalMilliseconds
 
     //timer.Start()
@@ -291,7 +292,8 @@ let main argv =
             x <! IntializeScheduler
         //nodeArray.[intitialNode] <! CallFromSelfPushSome
     else
-        nodeArray.[intitialNode] <! CallFromSelf // return an integer exit code
+        //nodeArray.[intitialNode] <! CallFromSelf // return an integer exit code
+        nodeArray.[intitialNode] <! CallFromNeighbour
     System.Console.ReadKey() |> ignore
     printfn "HELLO"
     0
