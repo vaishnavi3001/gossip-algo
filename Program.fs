@@ -72,7 +72,7 @@ let Observer totalNodes (timer : Stopwatch) (mailbox: Actor<_>) =
             pushSomeCount <- pushSomeCount + 1
             printfn "%s has converged with values s = %f and w = %f and s/w = %f and totalcount =%i" sender.Path.Name s w (s/w) pushSomeCount
             //printfn "OB %d %s %d BO" pushSomeCount sender.Path.Name totalNodes
-            if pushSomeCount = totalNodes + 1 then
+            if pushSomeCount = totalNodes then
                 printfn "System has converged"
                 Environment.Exit(0)
 
@@ -214,7 +214,7 @@ let Worker observer numberOfNodes initialWeight delta (gossipSystem : ActorSyste
 
             | IntializeScheduler ->
                 mailbox.Self <! SendSum (sum , weight, delta)
-                gossipSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(0.0),TimeSpan.FromMilliseconds(50.0), mailbox.Self, ClearLists)
+                gossipSystem.Scheduler.ScheduleTellRepeatedly(TimeSpan.FromSeconds(0.0),TimeSpan.FromMilliseconds(20.0), mailbox.Self, ClearLists)
                 
 
 
