@@ -275,6 +275,42 @@ let threeDTopology numberOfNodes (nodeArray: IActorRef [])=
             neighbourList <- (Array.append neighbourList[|nodeArray.[node+sqr]|])
 
         nodeArray.[node] <! NeighbourInitialization(neighbourList)
+
+let imperfectThreeDTopology numberOfNodes (nodeArray: IActorRef [])=
+    let cubeRoot:int = int(Math.Floor(Math.Cbrt(float(numberOfNodes))))
+    let sqr = cubeRoot * cubeRoot
+    
+    for node in 0..numberOfNodes-1 do
+        let randomNode = Random().Next(0, numberOfNodes - 1)
+        let mutable neighbourList = [||]
+        
+        // left node
+        if node % cubeRoot <> 0 then
+            neighbourList <- (Array.append neighbourList[|nodeArray.[node-1]|])
+        
+        // right node
+        if node % cubeRoot <> cubeRoot-1 then
+            neighbourList <- (Array.append neighbourList[|nodeArray.[node+1]|])
+        
+        // top
+        if node % sqr >= cubeRoot  then
+            neighbourList <- (Array.append neighbourList[|nodeArray.[node-cubeRoot]|])
+
+        // bottom
+        if node % sqr < (cubeRoot-1)*cubeRoot  then
+            neighbourList <- (Array.append neighbourList[|nodeArray.[node+cubeRoot]|])
+
+        // frontPlane
+        if node-sqr >= 0 then
+            neighbourList <- (Array.append neighbourList[|nodeArray.[node-sqr]|])
+        
+        // back plane
+        if node+sqr < numberOfNodes then
+            neighbourList <- (Array.append neighbourList[|nodeArray.[node+sqr]|])
+        
+        neighbourList <- (Array.append neighbourList[|nodeArray.[randomNode]|])
+         
+        nodeArray.[node] <! NeighbourInitialization(neighbourList)
         
 
 let createTopologies numberOfNodes topology nodeArray= 
@@ -283,7 +319,7 @@ let createTopologies numberOfNodes topology nodeArray=
     | "full" -> fullTopology numberOfNodes nodeArray
     | "3D" -> threeDTopology numberOfNodes nodeArray
     | "line" -> lineTopology numberOfNodes nodeArray
-    // | "imp3D" -> imperfectThreeDTopology numNodes nodeArray
+    | "imp3D" -> imperfectThreeDTopology numberOfNodes nodeArray
     | _ -> 
         printfn "Not a valid Topology%A" topology
         
